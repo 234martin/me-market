@@ -1,63 +1,89 @@
-# backend/app/main.py
-from fastapi import FastAPI, Depends, WebSocket, WebSocketDisconnect, HTTPException, Query
+# backend/main.py
+from fastapi import FastAPI, Depends, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
+from sqlalchemy import Column, Integer, String, Float, DateTime, JSON, create_engine
+from sqlalchemy.orm import sessionmaker, declarative_base, Session
 from typing import List, Optional
-import asyncio
+import stripe
+import paypalrestsdk
 import requests
 import base64
-import stripe
-import os
+import datetime
+import asyncio
 
-from .database import Base, engine, get_db
-from .models import Product
+# =========================================================
+# ENV / CONFIG
+# =========================================================
 
-# --------------------
-# APP SETUP
-# --------------------
-app = FastAPI(title="Marketplace API")
+STRIPE_SECRET_KEY = "sk_test_xxxxx"
+PAYPAL_CLIENT_ID = "your_paypal_client_id"
+PAYPAL_SECRET = "your_paypal_secret"
 
-# --------------------
-# CORS
-# --------------------
-origins = ["http://localhost:5173", "http://127.0.0.1:5173"]
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+MPESA_CONSUMER_KEY = "your_mpesa_key"
+MPESA_CONSUMER_SECRET = "your_mpesa_secret"
+MPESA_SHORTCODE = "174379"
+MPESA_PASSKEY = "your_passkey"
+MPESA_CALLBACK_URL = "https://yourdomain.com/mpesa/callback"
 
-# --------------------
+stripe.api_key = STRIPE_SECRET_KEY
+
+paypalrestsdk.configure({
+    "mode": "sandbox",
+    "client_id": PAYPAL_CLIENT_ID,
+    "client_secret": PAYPAL_SECRET
+})
+
+# =========================================================
 # DATABASE
-# --------------------
+# =========================================================
+
+DATABASE_URL = "sqlite:///./market.db"
+
+engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+SessionLocal = sessionmaker(bind=engine)
+Base = declarative_base()
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+# =========================================================
+# MODELS
+# =========================================================
+
+class Product(Base):
+    __tablename__ = "products"
+    id = Column(Integer, primary_key=True)
+    name = Column(String)
+    price = Column(Float)
+    image = Column(String)
+    category = Column(String)
+    description = Column(String)
+    seller_id = Column(Integer)
+
+class Order(Base):
+    __tablename__ = "orders"
+    id = Column(Integer, primary_key=True)
+    guest_name = Column(String, nullable=False)
+    guest_email = Column(String, nullable=False)
+    guest_phone = Column(String, nullable=False)
+    guest_address = Column(String, nullable=True)
+    cart_items = Column(JSON)
+    total_amount = Column(Float)
+    payment_method = Column(String)
+    payment_status = Column(String, default="Pending")
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
 Base.metadata.create_all(bind=engine)
 
-# --------------------
-# STRIPE CONFIG
-# --------------------
-stripe.api_key = os.getenv("STRIPE_SECRET_KEY", "your_stripe_key_here")
-
-# --------------------
-# PAYPAL CONFIG
-# --------------------
-PAYPAL_CLIENT_ID = os.getenv("PAYPAL_CLIENT_ID", "your_paypal_client_id")
-PAYPAL_SECRET = os.getenv("PAYPAL_SECRET", "your_paypal_secret")
-
-# --------------------
-# MPESA CONFIG
-# --------------------
-MPESA_CONSUMER_KEY = os.getenv("MPESA_KEY", "your_mpesa_key")
-MPESA_CONSUMER_SECRET = os.getenv("MPESA_SECRET", "your_mpesa_secret")
-MPESA_SHORTCODE = os.getenv("MPESA_SHORTCODE", "your_shortcode")
-MPESA_PASSKEY = os.getenv("MPESA_PASSKEY", "your_passkey")
-MPESA_ENV = "sandbox"  # or "production"
-
-# --------------------
+# =========================================================
 # SCHEMAS
-# --------------------
+# =========================================================
+
 class ProductCreate(BaseModel):
     name: str
     price: float
@@ -71,59 +97,69 @@ class ProductOut(ProductCreate):
 
 class PaymentRequest(BaseModel):
     amount: float
-    currency: str = "usd"
-    description: Optional[str] = "Marketplace Payment"
+    currency: str = "USD"
     phone: Optional[str] = None
 
-class PurchaseRequest(BaseModel):
-    amount: float
-    currency: str = "usd"
-    method: str  # stripe, paypal, mpesa, bank
-    description: Optional[str] = "Marketplace Payment"
-    phone: Optional[str] = None
+class OrderCreate(BaseModel):
+    guest_name: str
+    guest_email: str
+    guest_phone: str
+    guest_address: Optional[str] = None
+    cart_items: List[dict]
+    total_amount: float
+    payment_method: str
 
-# --------------------
+class OrderOut(OrderCreate):
+    id: int
+    payment_status: str
+    created_at: datetime.datetime
+
+# =========================================================
+# APP
+# =========================================================
+
+app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# =========================================================
 # WEBSOCKET MANAGER
-# --------------------
+# =========================================================
+
 class ConnectionManager:
     def __init__(self):
-        self.active_connections: List[WebSocket] = []
+        self.connections: List[WebSocket] = []
 
-    async def connect(self, websocket: WebSocket):
-        await websocket.accept()
-        self.active_connections.append(websocket)
+    async def connect(self, ws: WebSocket):
+        await ws.accept()
+        self.connections.append(ws)
 
-    def disconnect(self, websocket: WebSocket):
-        if websocket in self.active_connections:
-            self.active_connections.remove(websocket)
+    def disconnect(self, ws: WebSocket):
+        if ws in self.connections:
+            self.connections.remove(ws)
 
-    async def broadcast(self, message: dict):
-        disconnected = []
-        for connection in self.active_connections:
+    async def broadcast(self, data: dict):
+        for ws in self.connections:
             try:
-                await connection.send_json(message)
-            except Exception:
-                disconnected.append(connection)
-        for conn in disconnected:
-            self.disconnect(conn)
+                await ws.send_json(data)
+            except:
+                self.disconnect(ws)
 
 manager = ConnectionManager()
 
-# --------------------
-# PRODUCTS ENDPOINTS
-# --------------------
+# =========================================================
+# PRODUCT ENDPOINTS
+# =========================================================
+
 @app.get("/products", response_model=List[ProductOut])
-def get_products(
-    category: Optional[str] = Query(None, description="Filter by category (case-insensitive)"),
-    seller_id: Optional[int] = Query(None, description="Filter by seller id"),
-    db: Session = Depends(get_db),
-):
-    q = db.query(Product)
-    if category:
-        q = q.filter(Product.category.ilike(f"%{category}%"))
-    if seller_id is not None:
-        q = q.filter(Product.seller_id == seller_id)
-    return q.all()
+def get_products(db: Session = Depends(get_db)):
+    return db.query(Product).all()
 
 @app.post("/products", response_model=ProductOut, status_code=201)
 async def create_product(payload: ProductCreate, db: Session = Depends(get_db)):
@@ -132,181 +168,130 @@ async def create_product(payload: ProductCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(product)
 
-    # Broadcast new product via WebSocket
+    # Broadcast to WebSocket clients
     await manager.broadcast({
         "action": "new_product",
-        "product": product.__dict__
+        "product": payload.dict() | {"id": product.id}
     })
+
     return product
 
-@app.put("/products/{product_id}", response_model=ProductOut)
-async def update_product(product_id: int, payload: ProductCreate, db: Session = Depends(get_db)):
-    product = db.query(Product).filter(Product.id == product_id).first()
+@app.delete("/products/{product_id}")
+def delete_product(product_id: int, db: Session = Depends(get_db)):
+    product = db.query(Product).get(product_id)
     if not product:
-        raise HTTPException(status_code=404, detail="Product not found")
-    for key, value in payload.dict().items():
-        setattr(product, key, value)
-    db.commit()
-    db.refresh(product)
-
-    # Broadcast updated product via WebSocket
-    await manager.broadcast({
-        "action": "update_product",
-        "product": product.__dict__
-    })
-    return product
-
-@app.delete("/products/{product_id}", response_model=dict)
-async def delete_product(product_id: int, db: Session = Depends(get_db)):
-    product = db.query(Product).filter(Product.id == product_id).first()
-    if not product:
-        raise HTTPException(status_code=404, detail="Product not found")
+        return {"error": "Product not found"}
     db.delete(product)
     db.commit()
+    return {"status": "deleted"}
 
-    # Broadcast deleted product via WebSocket
-    await manager.broadcast({
-        "action": "delete_product",
-        "product_id": product_id
-    })
-    return {"message": "Product deleted successfully"}
-
-# --------------------
+# =========================================================
 # WEBSOCKET
-# --------------------
+# =========================================================
+
 @app.websocket("/ws/products")
-async def websocket_endpoint(websocket: WebSocket):
-    await manager.connect(websocket)
+async def ws_products(ws: WebSocket):
+    await manager.connect(ws)
     try:
         while True:
-            try:
-                await websocket.send_json({"action": "ping"})
-                await asyncio.sleep(10)
-            except WebSocketDisconnect:
-                manager.disconnect(websocket)
-                break
-            except Exception:
-                manager.disconnect(websocket)
-                break
-    except Exception:
-        manager.disconnect(websocket)
+            await asyncio.sleep(10)
+            await ws.send_json({"ping": "alive"})
+    except WebSocketDisconnect:
+        manager.disconnect(ws)
 
-# --------------------
-# PAYMENT HELPERS
-# --------------------
-def get_paypal_access_token():
-    try:
-        auth = base64.b64encode(f"{PAYPAL_CLIENT_ID}:{PAYPAL_SECRET}".encode()).decode()
-        headers = {"Authorization": f"Basic {auth}"}
-        res = requests.post(
-            "https://api-m.sandbox.paypal.com/v1/oauth2/token",
-            headers=headers,
-            data={"grant_type": "client_credentials"},
-            timeout=10
-        )
-        res.raise_for_status()
-        return res.json().get("access_token")
-    except Exception as e:
-        print("PayPal token error:", e)
-        return None
+# =========================================================
+# PAYMENTS
+# =========================================================
 
-def get_mpesa_token():
-    try:
-        res = requests.get(
-            f"https://sandbox.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials",
-            auth=(MPESA_CONSUMER_KEY, MPESA_CONSUMER_SECRET),
-            timeout=10
-        )
-        res.raise_for_status()
-        return res.json().get("access_token")
-    except Exception as e:
-        print("Mpesa token error:", e)
-        return None
+@app.post("/pay/stripe")
+def pay_stripe(payload: PaymentRequest):
+    intent = stripe.PaymentIntent.create(
+        amount=int(payload.amount * 100),
+        currency=payload.currency,
+        payment_method_types=["card"]
+    )
+    return {"client_secret": intent.client_secret}
 
-# --------------------
-# UNIFIED PURCHASE ENDPOINT
-# --------------------
-@app.post("/purchase")
-async def purchase(req: PurchaseRequest):
-    try:
-        method = req.method.lower()
+@app.post("/pay/paypal")
+def pay_paypal(payload: PaymentRequest):
+    payment = paypalrestsdk.Payment({
+        "intent": "sale",
+        "payer": {"payment_method": "paypal"},
+        "transactions": [{
+            "amount": {"total": str(payload.amount), "currency": payload.currency},
+            "description": "Marketplace Order"
+        }],
+        "redirect_urls": {
+            "return_url": "http://localhost:5173/success",
+            "cancel_url": "http://localhost:5173/cancel"
+        }
+    })
 
-        # ---------------- STRIPE ----------------
-        if method == "stripe":
-            try:
-                intent = stripe.PaymentIntent.create(
-                    amount=int(req.amount * 100),
-                    currency=req.currency,
-                    automatic_payment_methods={"enabled": True},
-                    description=req.description,
-                )
-                return {"provider": "stripe", "client_secret": intent.client_secret}
-            except stripe.error.StripeError as e:
-                raise HTTPException(status_code=400, detail=f"Stripe error: {str(e)}")
+    if payment.create():
+        for link in payment.links:
+            if link.rel == "approval_url":
+                return {"approval_url": link.href}
+    return {"error": "PayPal failed"}
 
-        # ---------------- PAYPAL ----------------
-        if method == "paypal":
-            token = get_paypal_access_token()
-            if not token:
-                raise HTTPException(status_code=500, detail="Failed to get PayPal access token")
-            headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-            order_payload = {
-                "intent": "CAPTURE",
-                "purchase_units": [{"amount": {"currency_code": req.currency.upper(), "value": f"{req.amount:.2f}"}}]
-            }
-            try:
-                res = requests.post(
-                    "https://api-m.sandbox.paypal.com/v2/checkout/orders",
-                    headers=headers,
-                    json=order_payload,
-                    timeout=10
-                )
-                res.raise_for_status()
-                return {"provider": "paypal", "order": res.json()}
-            except requests.RequestException as e:
-                raise HTTPException(status_code=500, detail=f"PayPal API error: {str(e)}")
+def mpesa_token():
+    auth = base64.b64encode(f"{MPESA_CONSUMER_KEY}:{MPESA_CONSUMER_SECRET}".encode()).decode()
+    res = requests.get(
+        "https://sandbox.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials",
+        headers={"Authorization": f"Basic {auth}"}
+    )
+    return res.json()["access_token"]
 
-        # ---------------- MPESA ----------------
-        if method == "mpesa":
-            if not req.phone:
-                raise HTTPException(status_code=400, detail="Phone number required for M-Pesa")
-            token = get_mpesa_token()
-            if not token:
-                raise HTTPException(status_code=500, detail="Failed to get M-Pesa token")
-            payload = {
-                "BusinessShortCode": MPESA_SHORTCODE,
-                "Password": MPESA_PASSKEY,
-                "Timestamp": "20251202123456",
-                "TransactionType": "CustomerPayBillOnline",
-                "Amount": req.amount,
-                "PartyA": req.phone,
-                "PartyB": MPESA_SHORTCODE,
-                "PhoneNumber": req.phone,
-                "CallBackURL": "https://yourdomain.com/mpesa/callback",
-                "AccountReference": "Marketplace",
-                "TransactionDesc": "Payment for order"
-            }
-            try:
-                res = requests.post(
-                    "https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest",
-                    headers={"Authorization": f"Bearer {token}"},
-                    json=payload,
-                    timeout=10
-                )
-                res.raise_for_status()
-                return {"provider": "mpesa", "response": res.json()}
-            except requests.RequestException as e:
-                raise HTTPException(status_code=500, detail=f"M-Pesa API error: {str(e)}")
+@app.post("/pay/mpesa")
+def pay_mpesa(payload: PaymentRequest):
+    token = mpesa_token()
+    timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+    password = base64.b64encode(f"{MPESA_SHORTCODE}{MPESA_PASSKEY}{timestamp}".encode()).decode()
 
-        # ---------------- BANK ----------------
-        if method == "bank":
-            return {
-                "provider": "bank",
-                "status": "pending",
-                "message": f"Bank transfer of {req.amount} {req.currency} initiated"
-            }
+    response = requests.post(
+        "https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "BusinessShortCode": MPESA_SHORTCODE,
+            "Password": password,
+            "Timestamp": timestamp,
+            "TransactionType": "CustomerPayBillOnline",
+            "Amount": payload.amount,
+            "PartyA": payload.phone,
+            "PartyB": MPESA_SHORTCODE,
+            "PhoneNumber": payload.phone,
+            "CallBackURL": MPESA_CALLBACK_URL,
+            "AccountReference": "Marketplace",
+            "TransactionDesc": "Order Payment"
+        }
+    )
+    return response.json()
 
-        raise HTTPException(status_code=400, detail="Invalid payment method")
+@app.post("/pay/bank")
+def pay_bank(payload: PaymentRequest):
+    return {
+        "status": "pending",
+        "bank": "ABC Bank",
+        "account": "123456789",
+        "amount": payload.amount
+    }
 
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Unexpected server error: {str(e)}")
+# =========================================================
+# ORDERS
+# =========================================================
+
+@app.post("/orders", response_model=OrderOut)
+def create_order(order: OrderCreate, db: Session = Depends(get_db)):
+    new_order = Order(
+        guest_name=order.guest_name,
+        guest_email=order.guest_email,
+        guest_phone=order.guest_phone,
+        guest_address=order.guest_address,
+        cart_items=order.cart_items,
+        total_amount=order.total_amount,
+        payment_method=order.payment_method,
+        payment_status="Paid"
+    )
+    db.add(new_order)
+    db.commit()
+    db.refresh(new_order)
+    return new_order

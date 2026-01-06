@@ -1,56 +1,79 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useMemo } from "react";
+import Hls from "hls.js";
 import { motion, AnimatePresence } from "framer-motion";
 import { Link, useNavigate } from "react-router-dom";
 import { useSellerProducts } from "../context/SellerProductsContext";
+import { useAuth } from "../context/AuthContext";
+import { useCart } from "../context/CartContext";
+import toast from "react-hot-toast";
 import ProductCard from "../components/ProductCard";
 
-// -----------------------------------------------------------------------------
-// Home.jsx — Modern Marketplace Homepage
-// -----------------------------------------------------------------------------
 export default function Home() {
   const { products } = useSellerProducts();
-
-  const [query, setQuery] = useState("");
-  const [suggestionsOpen, setSuggestionsOpen] = useState(false);
-  const [theme, setTheme] = useState(() => localStorage.getItem("theme") || "dark");
-  const [loading, setLoading] = useState(false);
+  const { user } = useAuth();
+  const { addToCart } = useCart();
   const navigate = useNavigate();
 
-  // Featured & trending selections
+  const [query, setQuery] = useState("");
+  const [loading, setLoading] = useState(true);
+  const carouselRef = useRef(null);
+  const videoRef = useRef(null);
+
   const featuredProducts = products.slice(0, 8);
   const trendingProducts = products.slice(0, 10);
 
-  // Static categories
   const categories = [
-    { name: "Electronics", img: "/cat-electronics.jpg" },
-    { name: "Fashion", img: "/cat-fashion.jpg" },
-    { name: "Home & Garden", img: "/cat-home.jpg" },
+    {
+      name: "electronics",
+      img: "https://images.unsplash.com/photo-1518770660439-4636190af475?q=80&w=1200&auto=format&fit=crop",
+    },
+    {
+      name: "fashion",
+      img: "https://images.unsplash.com/photo-1521334884684-d80222895322?q=80&w=1200&auto=format&fit=crop",
+    },
+    {
+      name: "home-garden",
+      img: "https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?q=80&w=1200&auto=format&fit=crop",
+    },
+    {
+      name: "sports",
+      img: "https://images.unsplash.com/photo-1517649763962-0c623066013b?q=80&w=1200&auto=format&fit=crop",
+    },
+    {
+      name: "books",
+      img: "https://images.unsplash.com/photo-1519681393784-d120267933ba?q=80&w=1200&auto=format&fit=crop",
+    },
   ];
 
-  // Apply theme to <html>
   useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-    localStorage.setItem("theme", theme);
-  }, [theme]);
+    const t = setTimeout(() => setLoading(false), 400);
+    return () => clearTimeout(t);
+  }, []);
 
-  // Live search suggestions
   const suggestions = useMemo(() => {
     if (!query) return [];
     const q = query.toLowerCase();
-
     return products
-      .filter((p) => (p.name || p.title || "").toLowerCase().includes(q))
+      .filter((p) => (p.name || "").toLowerCase().includes(q))
       .slice(0, 6);
   }, [query, products]);
 
-  // Auto-scrolling carousel
-  const carouselRef = useRef(null);
+  const handleSearch = () => {
+    if (!query.trim()) return;
+    navigate(`/categories?search=${encodeURIComponent(query)}`);
+  };
+
+  const handleBecomeSeller = () => {
+    if (!user) return navigate("/register");
+    if (user.type !== "seller") return navigate("/seller/onboard");
+    navigate("/seller");
+  };
+
   useEffect(() => {
     const el = carouselRef.current;
     if (!el) return;
-
-    let raf;
     let pos = 0;
+    let raf;
     const speed = 0.5;
 
     const step = () => {
@@ -63,224 +86,221 @@ export default function Home() {
     return () => cancelAnimationFrame(raf);
   }, [trendingProducts.length]);
 
-  // Skeleton loading mock
+  // ================= HLS HERO VIDEO =================
   useEffect(() => {
-    setLoading(products.length === 0);
-    const t = setTimeout(() => setLoading(false), 500);
-    return () => clearTimeout(t);
-  }, [products.length]);
+    if (!videoRef.current) return;
 
-  // Page transitions
-  const pageVariants = {
-    initial: { opacity: 0, y: 12 },
-    enter: { opacity: 1, y: 0, transition: { duration: 0.5 } },
-    exit: { opacity: 0, y: -8, transition: { duration: 0.35 } },
-  };
+    const video = videoRef.current;
+    const hlsUrl =
+      "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"; // Hosted HLS demo
+
+    if (Hls.isSupported()) {
+      const hls = new Hls();
+      hls.loadSource(hlsUrl);
+      hls.attachMedia(video);
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        video.play();
+      });
+      return () => hls.destroy();
+    } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+      video.src = hlsUrl;
+      video.addEventListener("loadedmetadata", () => video.play());
+    }
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-black text-gray-400">
+        Loading marketplace…
+      </div>
+    );
+  }
 
   return (
     <AnimatePresence mode="wait">
       <motion.main
-        key="home"
-        initial="initial"
-        animate="enter"
-        exit="exit"
-        variants={pageVariants}
-        className={`min-h-screen bg-gradient-to-b ${
-          theme === "dark"
-            ? "from-gray-900 to-gray-950"
-            : "from-white to-gray-50"
-        }`}
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -10 }}
+        transition={{ duration: 0.6 }}
+        className="min-h-screen bg-black text-white"
       >
-
-        {/* -------------------------------------------------------------------
-          NAVBAR (Glassmorphism)
-        ------------------------------------------------------------------- */}
-        
-        {/* -------------------------------------------------------------------
-          HERO SECTION + Animated Blobs
-        ------------------------------------------------------------------- */}
-        <section className="relative pt-28">
-          {/* Left Blob */}
-          <motion.div
-            className="absolute -left-32 -top-20 w-96 h-96 rounded-full bg-purple-600 opacity-40 blur-3xl"
-            animate={{
-              x: [0, 150, -80, 0],
-              y: [0, -60, 40, 0],
-              scale: [1, 1.08, 0.98, 1],
-            }}
-            transition={{ duration: 20, repeat: Infinity, ease: "easeInOut" }}
+        {/* ================= HERO ================= */}
+        <section className="relative h-[95vh] flex items-center overflow-hidden">
+          <video
+            ref={videoRef}
+            className="absolute inset-0 w-full h-full object-cover"
+            autoPlay
+            muted
+            loop
+            playsInline
           />
+          <div className="absolute inset-0 bg-black/70" />
+          <div className="absolute inset-0 bg-gradient-to-b from-black/80 via-black/40 to-black/90" />
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.25),transparent_55%)]" />
 
-          {/* Right Blob */}
-          <motion.div
-            className="absolute -right-32 top-12 w-[28rem] h-[28rem] rounded-full bg-blue-500 opacity-40 blur-3xl"
-            animate={{
-              x: [0, -120, 60, 0],
-              y: [0, 60, -40, 0],
-              scale: [1, 1.05, 0.98, 1],
-            }}
-            transition={{ duration: 18, repeat: Infinity, ease: "easeInOut" }}
-          />
-
-          {/* Hero Content */}
-          <div className="max-w-7xl mx-auto px-6 py-28 grid grid-cols-1 md:grid-cols-2 gap-10 items-center">
-            {/* Text */}
-            <motion.div
-              initial={{ opacity: 0, x: -30 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ duration: 0.6 }}
-            >
-              <h1 className="text-5xl md:text-6xl font-extrabold leading-tight">
-                Shop Smarter. Live Better.
+          <div className="relative z-10 max-w-7xl mx-auto px-6">
+            <div className="max-w-2xl backdrop-blur-xl bg-black/40 border border-white/10 rounded-3xl p-10 shadow-2xl">
+              <h1 className="text-6xl md:text-7xl font-extrabold leading-tight tracking-tight">
+                <span className="bg-clip-text text-transparent bg-gradient-to-r from-green-400 via-blue-500 to-purple-600">
+                  The Global Marketplace
+                </span>
               </h1>
 
-              <p className="mt-6 text-gray-300 text-lg max-w-xl">
-                Explore high-quality products from sellers around the world. Smooth shopping, secure checkout, and beautiful UI.
+              <p className="mt-6 text-lg text-gray-300">
+                Buy and sell premium products from verified sellers worldwide —
+                fast, secure, and broker-free.
               </p>
 
-              <div className="mt-8 flex gap-4 items-center">
-                <Link to="/category/Electronics" className="inline-block bg-green-600 hover:bg-green-500 px-6 py-3 rounded-2xl font-semibold shadow">Shop Electronics</Link>
-                <Link to="/register" className="inline-block text-sm text-gray-300 hover:text-white">Become a Seller →</Link>
+              <div className="mt-10 flex gap-4">
+                <input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+                  placeholder="Search products, brands, categories…"
+                  className="flex-grow px-5 py-4 rounded-2xl bg-black/60 backdrop-blur border border-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <button
+                  onClick={handleSearch}
+                  className="px-8 py-4 rounded-2xl font-semibold bg-gradient-to-r from-green-500 to-emerald-600 shadow-lg hover:scale-105 transition"
+                >
+                  Search
+                </button>
               </div>
 
-              {/* Benefits */}
-              <div className="mt-8 flex gap-6 flex-wrap">
-                <div className="flex items-center gap-3">
-                  <div className="bg-white/5 rounded-full w-10 h-10 flex items-center justify-center">⚡</div>
-                  <div>
-                    <div className="text-sm font-semibold">Fast Shipping</div>
-                    <div className="text-xs text-gray-400">Reliable couriers</div>
-                  </div>
+              {suggestions.length > 0 && (
+                <div className="mt-3 bg-black/80 backdrop-blur border border-gray-700 rounded-xl shadow-xl">
+                  {suggestions.map((s) => (
+                    <div
+                      key={s.id}
+                      onClick={() => navigate(`/product/${s.id}`)}
+                      className="px-4 py-2 hover:bg-gray-800 cursor-pointer transition"
+                    >
+                      {s.name}
+                    </div>
+                  ))}
                 </div>
+              )}
 
-                <div className="flex items-center gap-3">
-                  <div className="bg-white/5 rounded-full w-10 h-10 flex items-center justify-center">🔒</div>
-                  <div>
-                    <div className="text-sm font-semibold">Secure Payments</div>
-                    <div className="text-xs text-gray-400">Stripe & PayPal</div>
-                  </div>
-                </div>
-              </div>
-            </motion.div>
+              <div className="mt-10 flex gap-4">
+                <button
+                  onClick={handleBecomeSeller}
+                  className="px-7 py-3 rounded-2xl bg-gray-800 hover:bg-gray-700 font-semibold transition"
+                >
+                  Become a Seller
+                </button>
 
-            {/* Hero Image */}
-            <motion.div
-              initial={{ opacity: 0, scale: 0.98 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ duration: 0.6 }}
-            >
-              <div className="bg-gradient-to-br from-white/5 to-white/3 p-2 rounded-3xl shadow-2xl">
-                <img src="/hero-image.png" alt="hero" className="rounded-3xl w-full object-cover" />
+                <Link
+                  to="/categories"
+                  className="px-7 py-3 rounded-2xl bg-blue-600 hover:bg-blue-700 font-semibold transition"
+                >
+                  Shop Now
+                </Link>
               </div>
-            </motion.div>
+            </div>
           </div>
         </section>
 
-        {/* -------------------------------------------------------------------
-          TRENDING CAROUSEL
-        ------------------------------------------------------------------- */}
-        <section className="max-w-7xl mx-auto px-6 py-12">
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-3xl font-bold">Trending Now</h2>
-            <Link to="/trending" className="text-sm text-gray-400 hover:text-white">See all</Link>
-          </div>
-
-          <div ref={carouselRef} className="flex gap-6 overflow-x-auto no-scrollbar py-4">
-            {loading
-              ? Array.from({ length: 6 }).map((_, i) => (
-                  <div key={i} className="min-w-[260px] bg-gray-800 rounded-2xl p-4 animate-pulse h-64" />
-                ))
-              : trendingProducts.map((p) => (
-                  <div key={p.id} className="min-w-[260px] max-w-[260px]">
-                    <ProductCard product={p} />
-                  </div>
-                ))
-            }
+        {/* ================= TRENDING ================= */}
+        <section className="max-w-7xl mx-auto px-6 py-20">
+          <h2 className="text-3xl font-bold mb-8">Trending Products</h2>
+          <div
+            ref={carouselRef}
+            className="flex gap-8 overflow-x-auto pb-4 scrollbar-hide"
+          >
+            {trendingProducts.map((p) => (
+              <div
+                key={p.id}
+                className="relative min-w-[280px] rounded-2xl overflow-hidden shadow-xl group"
+              >
+                <div onClick={() => navigate(`/product/${p.id}`)}>
+                  <ProductCard product={p} />
+                </div>
+                <button
+                  onClick={() => {
+                    if (!user) return navigate("/login");
+                    addToCart(p, 1);
+                    toast.success(`${p.name} added to cart`);
+                  }}
+                  className="absolute top-3 right-3 bg-green-500 px-4 py-1.5 rounded-full text-sm font-semibold opacity-0 group-hover:opacity-100 transition"
+                >
+                  Add to Cart
+                </button>
+              </div>
+            ))}
           </div>
         </section>
 
-        {/* -------------------------------------------------------------------
-          CATEGORY GRID
-        ------------------------------------------------------------------- */}
-        <section className="max-w-7xl mx-auto px-6 py-12">
-          <h3 className="text-3xl font-bold mb-6">Shop by Category</h3>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
+        {/* ================= CATEGORIES ================= */}
+        <section className="max-w-7xl mx-auto px-6 py-20">
+          <h2 className="text-3xl font-bold mb-8">Shop by Category</h2>
+          <div className="grid md:grid-cols-5 gap-8">
             {categories.map((c) => (
               <Link
                 key={c.name}
                 to={`/category/${c.name}`}
-                className="group relative overflow-hidden rounded-2xl bg-gradient-to-br from-gray-900 to-gray-800 p-4 shadow-lg hover:scale-[1.02] transition-transform"
+                className="relative h-40 rounded-2xl overflow-hidden group shadow-lg"
               >
                 <img
                   src={c.img}
                   alt={c.name}
-                  className="absolute inset-0 w-full h-full object-cover opacity-30 group-hover:scale-105 transition-transform"
+                  className="absolute inset-0 w-full h-full object-cover group-hover:scale-110 transition duration-500"
                 />
-
-                <div className="relative z-10 p-6 flex flex-col items-start gap-4">
-                  <div className="bg-white/5 px-3 py-1 rounded-full text-sm">{c.name}</div>
-                  <div className="text-2xl font-semibold">{c.name}</div>
-                  <div className="text-sm text-gray-400">Explore top picks in {c.name}</div>
-                </div>
+                <div className="absolute inset-0 bg-black/55 group-hover:bg-black/30 transition" />
+                <span className="relative z-10 flex items-center justify-center h-full text-lg font-semibold capitalize">
+                  {c.name}
+                </span>
               </Link>
             ))}
           </div>
         </section>
 
-        {/* -------------------------------------------------------------------
-          FEATURED PRODUCTS
-        ------------------------------------------------------------------- */}
-        <section className="max-w-7xl mx-auto px-6 py-16">
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-3xl font-bold">Featured Products</h2>
-            <Link to="/featured" className="text-sm text-gray-400 hover:text-white">
-              Browse all
-            </Link>
+        {/* ================= FEATURED ================= */}
+        <section className="max-w-7xl mx-auto px-6 py-24">
+          <h2 className="text-3xl font-bold mb-10">Featured Products</h2>
+          <div className="grid md:grid-cols-4 gap-10">
+            {featuredProducts.map((p) => (
+              <div
+                key={p.id}
+                className="relative rounded-2xl overflow-hidden shadow-lg group"
+              >
+                <div onClick={() => navigate(`/product/${p.id}`)}>
+                  <ProductCard product={p} />
+                </div>
+                <button
+                  onClick={() => {
+                    if (!user) return navigate("/login");
+                    addToCart(p, 1);
+                    toast.success(`${p.name} added to cart`);
+                  }}
+                  className="absolute top-3 right-3 bg-green-500 px-4 py-1.5 rounded-full text-sm font-semibold opacity-0 group-hover:opacity-100 transition"
+                >
+                  Add to Cart
+                </button>
+              </div>
+            ))}
           </div>
-
-          {loading
-            ? (
-              <div className="grid sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-8">
-                {Array.from({ length: 8 }).map((_, i) => (
-                  <div key={i} className="h-80 rounded-xl bg-gray-800 animate-pulse" />
-                ))}
-              </div>
-            )
-            : (
-              <div className="grid sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-8">
-                {featuredProducts.map((p) => (
-                  <motion.div key={p.id} whileHover={{ scale: 1.03 }} className="transition-transform">
-                    <ProductCard product={p} />
-                  </motion.div>
-                ))}
-              </div>
-            )
-          }
         </section>
 
-        {/* -------------------------------------------------------------------
-          CTA: Become a Seller
-        ------------------------------------------------------------------- */}
-        <section className="max-w-7xl mx-auto px-6 py-20">
-          <div className="rounded-3xl bg-gradient-to-r from-indigo-700 via-purple-700 to-blue-800 p-12 shadow-2xl flex flex-col md:flex-row items-center justify-between gap-8">
+        {/* ================= CTA ================= */}
+        <section className="max-w-7xl mx-auto px-6 py-28">
+          <div className="rounded-3xl bg-gradient-to-r from-indigo-700 via-blue-700 to-cyan-600 p-16 flex flex-col md:flex-row justify-between items-center shadow-2xl">
             <div>
               <h3 className="text-4xl font-bold mb-3">Start Selling Today</h3>
-              <p className="text-gray-200 max-w-xl">
-                Create your seller account and reach thousands of customers. We handle payments and logistics so you can focus on growth.
+              <p className="text-gray-200 text-lg">
+                Launch your store and reach global buyers instantly.
               </p>
             </div>
 
-            <Link
-              to="/register"
-              className="bg-green-600 px-6 py-3 rounded-xl font-semibold hover:bg-green-500"
+            <button
+              onClick={handleBecomeSeller}
+              className="mt-6 md:mt-0 bg-green-500 hover:bg-green-600 px-9 py-4 rounded-2xl font-semibold transition shadow-lg"
             >
               Become a Seller
-            </Link>
+            </button>
           </div>
         </section>
 
-        {/* Spacer */}
         <div className="h-24" />
       </motion.main>
     </AnimatePresence>

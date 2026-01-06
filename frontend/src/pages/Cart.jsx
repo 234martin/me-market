@@ -1,4 +1,3 @@
-// frontend/src/pages/Cart.jsx
 import React from "react";
 import { useCart } from "../context/CartContext";
 import { useNavigate, Link } from "react-router-dom";

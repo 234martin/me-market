@@ -3,15 +3,42 @@ import React from "react";
 import { Link } from "react-router-dom";
 
 const categories = [
-  { name: "Electronics", img: "/cat-electronics.jpg" },
-  { name: "Fashion", img: "/cat-fashion.jpg" },
-  { name: "Home & Garden", img: "/cat-home.jpg" },
-  { name: "Sports", img: "/cat-sports.jpg" },
-  { name: "Toys", img: "/cat-toys.jpg" },
-  { name: "Beauty", img: "/cat-beauty.jpg" },
-  { name: "Automotive", img: "/cat-automotive.jpg" },
-  { name: "Books", img: "/cat-books.jpg" },
-  { name: "Groceries", img: "/cat-groceries.jpg" },
+  {
+    name: "Electronics",
+    img: "https://images.unsplash.com/photo-1518770660439-4636190af475?ixlib=rb-4.0.3&auto=format&fit=crop&w=1200&q=80",
+  },
+  {
+    name: "Fashion",
+    img: "https://images.unsplash.com/photo-1521334884684-d80222895322?ixlib=rb-4.0.3&auto=format&fit=crop&w=1200&q=80",
+  },
+  {
+    name: "Home & Garden",
+    img: "https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?ixlib=rb-4.0.3&auto=format&fit=crop&w=1200&q=80",
+  },
+  {
+    name: "Sports",
+    img: "https://images.unsplash.com/photo-1517649763962-0c623066013b?ixlib=rb-4.0.3&auto=format&fit=crop&w=1200&q=80",
+  },
+  {
+    name: "Toys",
+    img: "https://images.unsplash.com/photo-1583337130417-4f2443c318f7?ixlib=rb-4.0.3&auto=format&fit=crop&w=1200&q=80",
+  },
+  {
+    name: "Beauty",
+    img: "https://images.unsplash.com/photo-1522335789203-aabd1fc54bc9?ixlib=rb-4.0.3&auto=format&fit=crop&w=1200&q=80",
+  },
+  {
+    name: "Automotive",
+    img: "https://images.unsplash.com/photo-1502877338535-766e1452684a?ixlib=rb-4.0.3&auto=format&fit=crop&w=1200&q=80",
+  },
+  {
+    name: "Books",
+    img: "https://images.unsplash.com/photo-1512820790803-83ca734da794?ixlib=rb-4.0.3&auto=format&fit=crop&w=1200&q=80",
+  },
+  {
+    name: "Groceries",
+    img: "https://images.unsplash.com/photo-1598514984046-1103d99a4b18?ixlib=rb-4.0.3&auto=format&fit=crop&w=1200&q=80",
+  },
 ];
 
 export default function CategoriesPage() {

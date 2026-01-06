@@ -3,23 +3,26 @@ import { Routes, Route } from "react-router-dom";
 
 // Pages
 import Home from "./pages/Home";
+import About from "./pages/About";
+import Services from "./pages/Services";
+import Contact from "./pages/Contact";
 import Product from "./pages/Product";
+import CategoriesPage from "./pages/CategoriesPage";
+import CategoryPage from "./pages/CategoryPage";
+import Cart from "./pages/Cart";
+import Checkout from "./pages/Checkout";
 import SellerDashboard from "./pages/SellerDashboard";
 import SellerOnboarding from "./pages/SellerOnboarding";
 import CreateProduct from "./pages/CreateProduct";
 import EditProduct from "./pages/EditProduct";
 import DeleteProduct from "./pages/DeleteProduct";
-import About from "./pages/About";
-import Services from "./pages/Services";
-import Contact from "./pages/Contact";
-import CategoryPage from "./pages/CategoryPage";
-import CategoriesPage from "./pages/CategoriesPage"; // <-- new full categories listing page
-import Login from "./pages/Login";
-import Register from "./pages/Register";
-import Cart from "./pages/Cart";
-import SellerProducts from "./pages/SellerProducts";
-import Checkout from "./pages/Checkout";
 import AnalyticsDashboard from "./pages/AnalyticsDashboard";
+
+// Auth Pages
+import Login3D from "./pages/auth/Login3D";
+import Register3D from "./pages/auth/Register3D";
+import ResetPassword from "./pages/auth/ResetPassword";
+import Onboarding from "./pages/auth/Onboarding";
 
 // Components
 import Header from "./components/Header";
@@ -36,37 +39,27 @@ export default function App() {
     <AuthProvider>
       <SellerProductsProvider>
         <CartProvider>
-          <div className="min-h-screen flex flex-col bg-gray-900 text-white">
+          <div className="min-h-screen flex flex-col bg-gray-950 text-white">
+            <Header /> {/* Always visible */}
 
-            {/* HEADER */}
-            <Header />
-
-            {/* MAIN ROUTING */}
             <main className="flex-grow container mx-auto px-4 py-6">
               <Routes>
-
-                {/* PUBLIC ROUTES */}
+                {/* PUBLIC */}
                 <Route path="/" element={<Home />} />
                 <Route path="/about" element={<About />} />
                 <Route path="/services" element={<Services />} />
                 <Route path="/contact" element={<Contact />} />
-                <Route path="/login" element={<Login />} />
-                <Route path="/register" element={<Register />} />
                 <Route path="/product/:id" element={<Product />} />
-
-                {/* NEW: FULL CATEGORIES PAGE */}
                 <Route path="/categories" element={<CategoriesPage />} />
-
-                {/* PUBLIC CATEGORY PAGE */}
                 <Route path="/category/:categoryName" element={<CategoryPage />} />
 
-                {/* PUBLIC SELLER PRODUCTS PAGE */}
-                <Route path="/seller-products" element={<SellerProducts />} />
+                {/* AUTH */}
+                <Route path="/login" element={<Login3D />} />
+                <Route path="/register" element={<Register3D />} />
+                <Route path="/reset-password" element={<ResetPassword />} />
+                <Route path="/onboarding" element={<Onboarding />} />
 
-                {/* DELETE PRODUCT PAGE (also public for now) */}
-                <Route path="/delete-product/:id" element={<DeleteProduct />} />
-
-                {/* BUYER ROUTES */}
+                {/* CART (buyer only) */}
                 <Route
                   path="/cart"
                   element={
@@ -76,16 +69,10 @@ export default function App() {
                   }
                 />
 
-                <Route
-                  path="/checkout"
-                  element={
-                    <PrivateRoute type="buyer">
-                      <Checkout />
-                    </PrivateRoute>
-                  }
-                />
+                {/* CHECKOUT (guest & buyer) */}
+                <Route path="/checkout" element={<Checkout />} />
 
-                {/* SELLER ROUTES */}
+                {/* SELLER */}
                 <Route
                   path="/seller"
                   element={
@@ -94,7 +81,6 @@ export default function App() {
                     </PrivateRoute>
                   }
                 />
-
                 <Route
                   path="/seller/onboard"
                   element={
@@ -103,7 +89,6 @@ export default function App() {
                     </PrivateRoute>
                   }
                 />
-
                 <Route
                   path="/seller/create-product"
                   element={
@@ -112,7 +97,6 @@ export default function App() {
                     </PrivateRoute>
                   }
                 />
-
                 <Route
                   path="/seller/edit-product/:id"
                   element={
@@ -121,7 +105,6 @@ export default function App() {
                     </PrivateRoute>
                   }
                 />
-
                 <Route
                   path="/seller/delete-product/:id"
                   element={
@@ -130,8 +113,6 @@ export default function App() {
                     </PrivateRoute>
                   }
                 />
-
-                {/* NEW: SELLER ANALYTICS DASHBOARD */}
                 <Route
                   path="/seller/analytics"
                   element={
@@ -140,12 +121,10 @@ export default function App() {
                     </PrivateRoute>
                   }
                 />
-
               </Routes>
             </main>
 
-            {/* FOOTER */}
-            <Footer />
+            <Footer /> {/* Always visible */}
           </div>
         </CartProvider>
       </SellerProductsProvider>
